@@ -1,0 +1,90 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Scaleway-account koppelen",
+        "description": "Voer een API-sleutel in van een Scaleway IAM-gebruiker of -applicatie met alleen-lezen toegang tot IAM, Billing, Instance, Kubernetes en Object Storage. Voeg deze integratie nogmaals toe om meer Organizations te volgen.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Scaleway API-sleutel bijwerken",
+        "description": "De opgeslagen API-sleutel voor Organization {organization_id} werkt niet meer — mogelijk is deze ingetrokken of verlopen. Voer een vervangende sleutel in. Bij het roteren van een sleutel krijg je een nieuwe access key én secret key, dus beide zijn nodig. De vervangende sleutel moet bij dezelfde Organization horen.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "reconfigure": {
+        "title": "Scaleway API-sleutel vervangen",
+        "description": "Voer een nieuwe API-sleutel in voor Organization {organization_id} — bijvoorbeeld na het roteren of intrekken van de oude. Bij het roteren van een sleutel krijg je een nieuwe access key én secret key, dus beide zijn nodig, en de nieuwe sleutel moet bij dezelfde Organization horen. Je sensoren, geschiedenis en back-uplocatie blijven behouden.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "buckets": {
+        "title": "Kies buckets om de grootte van te volgen",
+        "description": "De grootte van een bucket opvragen betekent alle objecten erin opsommen, dus buckets moeten bewust gekozen worden in plaats van automatisch allemaal gevolgd te worden. Laat leeg om groottesensoren over te slaan. Je kunt hier ook een bucket kiezen als HA-back-uplocatie — die verschijnt dan onder Instellingen → Systeem → Back-ups → Locaties. Dit alles is later aan te passen via de opties van de integratie.",
+        "data": {
+          "buckets": "Buckets om de grootte van te volgen",
+          "backup_bucket": "Back-up-doelbucket",
+          "backup_prefix": "Prefix voor back-up-objectsleutels"
+        },
+        "data_description": {
+          "backup_bucket": "Optioneel. Elke back-up wordt hier weggeschreven als een .tar-bestand plus een bijbehorend .metadata.json-bestand — Scaleway heeft geen eigen back-upconcept om die metadata in op te slaan.",
+          "backup_prefix": "Optioneel. Wordt voor de sleutel van elk back-upobject geplaatst, bijv. 'homeassistant/' — handig als deze bucket ook voor andere dingen gebruikt wordt."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldige access key of secret key.",
+      "cannot_connect": "Kon geen verbinding maken met de Scaleway API.",
+      "unknown": "Onverwachte fout."
+    },
+    "abort": {
+      "already_configured": "Deze Organization is al geconfigureerd.",
+      "reauth_successful": "Scaleway API-sleutel bijgewerkt.",
+      "reconfigure_successful": "Scaleway API-sleutel vervangen.",
+      "wrong_account": "Deze API-sleutel hoort bij een andere Scaleway Organization. Gebruik een sleutel van de Organization waarmee dit item is ingesteld, of voeg een aparte integratie toe voor de andere Organization."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kies buckets om de grootte van te volgen",
+        "description": "De grootte van een bucket opvragen betekent alle objecten erin opsommen, dus buckets moeten bewust gekozen worden in plaats van automatisch allemaal gevolgd te worden. De back-up-doelbucket bepaalt of dit account verschijnt onder Instellingen → Systeem → Back-ups → Locaties.",
+        "data": {
+          "buckets": "Buckets om de grootte van te volgen",
+          "backup_bucket": "Back-up-doelbucket",
+          "backup_prefix": "Prefix voor back-up-objectsleutels"
+        },
+        "data_description": {
+          "backup_bucket": "Optioneel. Elke back-up wordt hier weggeschreven als een .tar-bestand plus een bijbehorend .metadata.json-bestand.",
+          "backup_prefix": "Optioneel. Wordt voor de sleutel van elk back-upobject geplaatst, bijv. 'homeassistant/'."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cost_total": {
+        "name": "Totale kosten (huidige periode)"
+      },
+      "instance_state": {
+        "name": "Status"
+      },
+      "cluster_status": {
+        "name": "Status"
+      },
+      "bucket_size": {
+        "name": "Grootte"
+      },
+      "bucket_object_count": {
+        "name": "Aantal objecten"
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # HACS and hassfest evolve independently of this repo, so re-run weekly
+    # to catch a rule change before a user does.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
+
+  translations:
+    name: Translations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install ICU MessageFormat parser
+        run: npm install --no-save @formatjs/icu-messageformat-parser
+      # Home Assistant parses translation strings as ICU MessageFormat, where
+      # `<word>` opens a rich-text tag and `{word}` is a placeholder. A stray
+      # angle bracket renders as "translation error: UNCLOSED_TAG" in the UI
+      # while passing every JSON and Python check, so it needs its own gate.
+      - name: Validate translation strings
+        run: |
+          node scripts/validate_translations.js \
+            custom_components/scaleway/strings.json \
+            custom_components/scaleway/translations/*.json
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Byte-compile
+        run: python -m compileall -q custom_components/scaleway
+      - name: Check strings.json and translations/en.json are in sync
+        run: diff custom_components/scaleway/strings.json custom_components/scaleway/translations/en.json
+      - name: Check translation key parity
+        run: |
+          python - <<'PY'
+          import json, sys, glob
+          def keys(o, p=""):
+              s = set()
+              for k, v in o.items():
+                  s.add(p + k)
+                  if isinstance(v, dict):
+                      s |= keys(v, p + k + ".")
+              return s
+          base = keys(json.load(open("custom_components/scaleway/translations/en.json")))
+          bad = False
+          for f in sorted(glob.glob("custom_components/scaleway/translations/*.json")):
+              k = keys(json.load(open(f)))
+              if k != base:
+                  bad = True
+                  print(f"{f}: missing={sorted(base - k)} extra={sorted(k - base)}")
+          sys.exit(1 if bad else 0)
+          PY

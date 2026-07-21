@@ -1,0 +1,12 @@
+{
+  "domain": "scaleway",
+  "name": "Scaleway",
+  "codeowners": ["@yodax"],
+  "config_flow": true,
+  "documentation": "https://github.com/yodax/ha-scaleway",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/yodax/ha-scaleway/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

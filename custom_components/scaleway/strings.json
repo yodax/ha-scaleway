@@ -1,0 +1,90 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect a Scaleway account",
+        "description": "Enter an API key from a Scaleway IAM user or application with read-only access to IAM, Billing, Instance, Kubernetes, and Object Storage. Add this integration again to track additional Organizations.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update your Scaleway API key",
+        "description": "The stored API key for Organization {organization_id} no longer works — it may have been revoked, or reached its expiry date. Enter a replacement key. Rotating a key produces a new access key and secret key, so both are needed. The replacement must belong to the same Organization.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "reconfigure": {
+        "title": "Replace your Scaleway API key",
+        "description": "Enter a new API key for Organization {organization_id} — for example after rotating or revoking the old one. Rotating a key produces a new access key and secret key, so both are needed, and the new key must belong to the same Organization. Your sensors, history and backup location are all kept.",
+        "data": {
+          "access_key": "Access key",
+          "secret_key": "Secret key"
+        }
+      },
+      "buckets": {
+        "title": "Choose buckets to monitor for size",
+        "description": "Getting a bucket's size means listing every object in it, so buckets are opt-in rather than all being monitored automatically. Leave empty to skip bucket size sensors. You can also pick a bucket here to use as an HA backup destination — it'll show up under Settings → System → Backups → Locations. All of this can be changed later from the integration's options.",
+        "data": {
+          "buckets": "Buckets to monitor for size",
+          "backup_bucket": "Backup destination bucket",
+          "backup_prefix": "Backup object key prefix"
+        },
+        "data_description": {
+          "backup_bucket": "Optional. Each backup is written here as a .tar file plus a matching .metadata.json sidecar — Scaleway has no first-class backup concept to store that metadata in directly.",
+          "backup_prefix": "Optional. Prepended to every backup object's key, e.g. 'homeassistant/' — useful if this bucket is shared with other things."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid access key or secret key.",
+      "cannot_connect": "Could not reach the Scaleway API.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Organization is already configured.",
+      "reauth_successful": "Scaleway API key updated.",
+      "reconfigure_successful": "Scaleway API key replaced.",
+      "wrong_account": "That API key belongs to a different Scaleway Organization. Use a key for the Organization this entry was set up with, or add a separate integration entry for the other Organization."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Choose buckets to monitor for size",
+        "description": "Getting a bucket's size means listing every object in it, so buckets are opt-in rather than all being monitored automatically. The backup destination bucket controls whether this account shows up under Settings → System → Backups → Locations.",
+        "data": {
+          "buckets": "Buckets to monitor for size",
+          "backup_bucket": "Backup destination bucket",
+          "backup_prefix": "Backup object key prefix"
+        },
+        "data_description": {
+          "backup_bucket": "Optional. Each backup is written here as a .tar file plus a matching .metadata.json sidecar.",
+          "backup_prefix": "Optional. Prepended to every backup object's key, e.g. 'homeassistant/'."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cost_total": {
+        "name": "Total cost (current period)"
+      },
+      "instance_state": {
+        "name": "State"
+      },
+      "cluster_status": {
+        "name": "Status"
+      },
+      "bucket_size": {
+        "name": "Size"
+      },
+      "bucket_object_count": {
+        "name": "Object count"
+      }
+    }
+  }
+}

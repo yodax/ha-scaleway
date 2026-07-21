@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.vscode/
+.DS_Store
+node_modules/
+package-lock.json
+
+# Local development notes and AI tooling. These stay on disk but are not
+# published: they contain deployment and account specifics that have no
+# place in a public repository.
+CLAUDE.md
+.claude/
