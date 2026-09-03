@@ -20,8 +20,8 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
@@ -40,13 +40,18 @@ async def async_setup_entry(
     coordinator: ScalewayCoordinator = coordinators["main"]
     buckets_coordinator: ScalewayBucketsCoordinator = coordinators["buckets"]
 
-    account_device = DeviceInfo(
+    # Registered eagerly rather than left to the cost sensors' DeviceInfo: the
+    # per-resource devices link back to it with `via_device_id`, which HA only
+    # resolves against devices that are already in the registry.
+    account_device_id = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name=entry.title,
         manufacturer="Scaleway",
         entry_type=DeviceEntryType.SERVICE,
         configuration_url="https://console.scaleway.com",
-    )
+    ).id
+    account_device = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)})
 
     known_categories: set[str] = set()
     known_instances: set[str] = set()
@@ -74,7 +79,9 @@ async def async_setup_entry(
             return
         known_instances.update(new_ids)
         async_add_entities(
-            ScalewayInstanceSensor(coordinator, entry, instances_by_id[instance_id])
+            ScalewayInstanceSensor(
+                coordinator, entry, instances_by_id[instance_id], account_device_id
+            )
             for instance_id in new_ids
         )
 
@@ -87,7 +94,9 @@ async def async_setup_entry(
             return
         known_clusters.update(new_ids)
         async_add_entities(
-            ScalewayClusterSensor(coordinator, entry, clusters_by_id[cluster_id])
+            ScalewayClusterSensor(
+                coordinator, entry, clusters_by_id[cluster_id], account_device_id
+            )
             for cluster_id in new_ids
         )
 
@@ -101,8 +110,16 @@ async def async_setup_entry(
         entities: list[SensorEntity] = []
         for key in new_keys:
             region, name = key.split(":", 1)
-            entities.append(ScalewayBucketSizeSensor(buckets_coordinator, entry, region, name))
-            entities.append(ScalewayBucketObjectCountSensor(buckets_coordinator, entry, region, name))
+            entities.append(
+                ScalewayBucketSizeSensor(
+                    buckets_coordinator, entry, region, name, account_device_id
+                )
+            )
+            entities.append(
+                ScalewayBucketObjectCountSensor(
+                    buckets_coordinator, entry, region, name, account_device_id
+                )
+            )
         async_add_entities(entities)
 
     async_add_entities([ScalewayCostTotalSensor(coordinator, entry, account_device)])
@@ -191,7 +208,13 @@ class ScalewayInstanceSensor(CoordinatorEntity[ScalewayCoordinator], SensorEntit
     _attr_has_entity_name = True
     _attr_translation_key = "instance_state"
 
-    def __init__(self, coordinator: ScalewayCoordinator, entry: ConfigEntry, instance: dict) -> None:
+    def __init__(
+        self,
+        coordinator: ScalewayCoordinator,
+        entry: ConfigEntry,
+        instance: dict,
+        via_device_id: str,
+    ) -> None:
         super().__init__(coordinator)
         self._instance_id = instance["id"]
         self._attr_unique_id = f"{entry.entry_id}_instance_{self._instance_id}_state"
@@ -200,7 +223,7 @@ class ScalewayInstanceSensor(CoordinatorEntity[ScalewayCoordinator], SensorEntit
             name=instance["name"],
             manufacturer="Scaleway",
             model=instance.get("commercial_type"),
-            via_device=(DOMAIN, entry.entry_id),
+            via_device_id=via_device_id,
         )
 
     @property
@@ -234,7 +257,13 @@ class ScalewayClusterSensor(CoordinatorEntity[ScalewayCoordinator], SensorEntity
     _attr_has_entity_name = True
     _attr_translation_key = "cluster_status"
 
-    def __init__(self, coordinator: ScalewayCoordinator, entry: ConfigEntry, cluster: dict) -> None:
+    def __init__(
+        self,
+        coordinator: ScalewayCoordinator,
+        entry: ConfigEntry,
+        cluster: dict,
+        via_device_id: str,
+    ) -> None:
         super().__init__(coordinator)
         self._cluster_id = cluster["id"]
         self._attr_unique_id = f"{entry.entry_id}_cluster_{self._cluster_id}_status"
@@ -243,7 +272,7 @@ class ScalewayClusterSensor(CoordinatorEntity[ScalewayCoordinator], SensorEntity
             name=cluster["name"],
             manufacturer="Scaleway",
             model="Kubernetes Kapsule",
-            via_device=(DOMAIN, entry.entry_id),
+            via_device_id=via_device_id,
         )
 
     @property
@@ -277,7 +306,12 @@ class _ScalewayBucketSensorBase(CoordinatorEntity[ScalewayBucketsCoordinator], S
     _attr_has_entity_name = True
 
     def __init__(
-        self, coordinator: ScalewayBucketsCoordinator, entry: ConfigEntry, region: str, name: str
+        self,
+        coordinator: ScalewayBucketsCoordinator,
+        entry: ConfigEntry,
+        region: str,
+        name: str,
+        via_device_id: str,
     ) -> None:
         super().__init__(coordinator)
         self._key = f"{region}:{name}"
@@ -286,7 +320,7 @@ class _ScalewayBucketSensorBase(CoordinatorEntity[ScalewayBucketsCoordinator], S
             name=f"{name} ({region})",
             manufacturer="Scaleway",
             model="Object Storage bucket",
-            via_device=(DOMAIN, entry.entry_id),
+            via_device_id=via_device_id,
         )
 
     @property
@@ -311,9 +345,14 @@ class ScalewayBucketSizeSensor(_ScalewayBucketSensorBase):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(
-        self, coordinator: ScalewayBucketsCoordinator, entry: ConfigEntry, region: str, name: str
+        self,
+        coordinator: ScalewayBucketsCoordinator,
+        entry: ConfigEntry,
+        region: str,
+        name: str,
+        via_device_id: str,
     ) -> None:
-        super().__init__(coordinator, entry, region, name)
+        super().__init__(coordinator, entry, region, name, via_device_id)
         self._attr_unique_id = f"{entry.entry_id}_bucket_{self._key}_size"
 
     @property
@@ -329,9 +368,14 @@ class ScalewayBucketObjectCountSensor(_ScalewayBucketSensorBase):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(
-        self, coordinator: ScalewayBucketsCoordinator, entry: ConfigEntry, region: str, name: str
+        self,
+        coordinator: ScalewayBucketsCoordinator,
+        entry: ConfigEntry,
+        region: str,
+        name: str,
+        via_device_id: str,
     ) -> None:
-        super().__init__(coordinator, entry, region, name)
+        super().__init__(coordinator, entry, region, name, via_device_id)
         self._attr_unique_id = f"{entry.entry_id}_bucket_{self._key}_object_count"
 
     @property
