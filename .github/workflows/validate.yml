@@ -3,6 +3,9 @@ name: Validate
 on:
   push:
     branches: [main]
+    # Tags too, so the manifest-version job below actually sees a release being
+    # cut — without this the workflow never runs on the ref it needs to check.
+    tags: ["v*"]
   pull_request:
   schedule:
     # HACS and hassfest evolve independently of this repo, so re-run weekly
@@ -11,6 +14,40 @@ on:
   workflow_dispatch:
 
 jobs:
+  # HACS installs whatever the latest GitHub release points at, but the version
+  # it displays — and the one HA logs at startup — comes from manifest.json
+  # inside that archive. Cut a tag before bumping the manifest and the two
+  # disagree forever, with nothing in either HACS or hassfest comparing them.
+  # This is not hypothetical: sirkirby/unifi-network-rules shipped every tagged
+  # archive one version behind (fixed in their #157), which landed in a real
+  # install as an on-disk 4.4.5 that HACS reported as v4.4.6.
+  #
+  # Releases here are cut by hand (see CLAUDE.md "Cutting a release"), so this
+  # check is the only thing comparing the two, and it is DETECTIVE, not
+  # preventive: `gh release create` publishes the release and the tag together,
+  # so this runs just after. A red run means delete the release AND the tag,
+  # fix manifest.json, re-cut.
+  manifest-version:
+    name: manifest.json version matches tag
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare manifest version to tag
+        env:
+          # Via env, not inline ${{ }} in run: — a tag name is attacker-influenced
+          # text and would otherwise be pasted into the shell.
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("custom_components/scaleway/manifest.json"))["version"])')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match manifest.json version $version — expected tag v$version"
+            exit 1
+          fi
+          echo "tag $TAG matches manifest.json version $version"
+
   hacs:
     name: HACS
     runs-on: ubuntu-latest
