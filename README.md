@@ -70,6 +70,19 @@ Backups are uploaded with multipart uploads, downloaded as a stream (so a
 multi-gigabyte restore doesn't have to fit in memory), and every upload is
 verified against the checksum Scaleway reports.
 
+**Restore has been tested, not just assumed.** On 2026-09-07 a 5 GiB
+automatic backup was pulled from a Scaleway bucket and restored into a
+throwaway Home Assistant container: the instance came up, and its database
+and `configuration.yaml` were byte-identical to the source, with the
+restored `instance_id` matching the one recorded in the backup metadata.
+
+If you test this yourself, do it in an **isolated** container
+(`--network none`) with its own config directory. A restored production
+config is not inert — on boot it will reach for your MQTT broker, your cloud
+integrations and your phones, and its automations will run. Home Assistant
+also *clears* the config directory before extracting, so pointing a restore
+at your live config directory will delete it.
+
 ---
 
 ## Requirements
