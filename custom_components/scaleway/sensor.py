@@ -136,7 +136,16 @@ async def async_setup_entry(
 
 
 class ScalewayCostTotalSensor(CoordinatorEntity[ScalewayCoordinator], SensorEntity):
-    """Total Scaleway spend for the current billing period."""
+    """Invoiced Scaleway spend, excluding VAT, for the current billing period.
+
+    This is the figure Scaleway invoices: the consumption line items net of any
+    organization-wide discount. Verified against every invoice on a real
+    account — see `api.async_get_cost` and CLAUDE.md.
+
+    **Excluding VAT.** It corresponds to an invoice's `total_untaxed`. Whether
+    a customer then pays VAT on top depends on their tax situation, which the
+    billing API does not expose, so this sensor does not guess at it.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "cost_total"
@@ -160,12 +169,34 @@ class ScalewayCostTotalSensor(CoordinatorEntity[ScalewayCoordinator], SensorEnti
             return None
         return self.coordinator.data["cost"]["currency"]
 
+    @property
+    def extra_state_attributes(self):
+        """Expose the two halves so the state is explicable, not just a number.
+
+        When a discount is active, `gross` is what the line items add up to and
+        the state is `gross - discount`. That also means the state does not
+        equal the sum of the per-category sensors, which is deliberate: a
+        discount is organization-wide and Scaleway attributes it to no category.
+        """
+        if self.coordinator.data is None:
+            return {}
+        cost = self.coordinator.data["cost"]
+        return {
+            "gross": cost["gross"],
+            "discount": cost["discount"],
+            "excludes_vat": True,
+        }
+
 
 class ScalewayCostCategorySensor(CoordinatorEntity[ScalewayCoordinator], SensorEntity):
-    """Spend for one billing category (e.g. Object Storage, Instances).
+    """Gross spend for one billing category (e.g. Object Storage, Instances).
 
     Categories are discovered from the API, not a fixed enum, so this
     entity sets its own name directly rather than using a translation_key.
+
+    These are **gross and ex-VAT**: an organization-wide discount is not
+    attributed to any category by Scaleway, so it is applied to the total
+    sensor only and these do not sum to it while one is active.
     """
 
     _attr_has_entity_name = True

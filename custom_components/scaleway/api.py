@@ -49,6 +49,12 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 API_BASE = "https://api.scaleway.com"
+CONSUMPTIONS_PATH = "/billing/v2beta1/consumptions"
+# The endpoint pages; see _fetch_consumptions. The cap bounds a runaway loop
+# against someone's billing API — 100 x 50 pages is far more line items than any
+# plausible organization has (a real one was seen peaking at 18).
+CONSUMPTIONS_PAGE_SIZE = 100
+MAX_CONSUMPTION_PAGES = 50
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
 # Deliberately no `total`: a multi-GB backup over a slow uplink is not an
 # error, but a connection that stops producing bytes is — hence sock_read.
@@ -200,29 +206,129 @@ class ScalewayApiClient:
         return organization_id
 
     async def async_get_cost(self, organization_id: str) -> dict:
-        """Return total + per-category cost for the current billing period.
+        """Return the invoiced cost for the current billing period.
 
-        The consumptions endpoint returns a flat list of line items, not a
-        rollup — there's no server-side total to just read.
+        Verified on 2026-09-07 against all 80 invoices on a real organization:
+        this figure equals the invoice's ``total_untaxed`` to the cent in every
+        period. Three things make that true, and each of them is a trap:
+
+        1. **The discount trailer must be subtracted.** ``consumptions[]`` is
+           gross. An org-wide rate discount or commitment appears *only* as the
+           ``total_discount_untaxed_value`` trailer, with no line item and no
+           category. Summing the line items alone overstated the bill by 25% for
+           the twelve periods a 25% discount was live on the account it was
+           verified against.
+        2. **The trailer is a bare number, not a units/nanos money object** —
+           the only amount in this API that is not. Parsing it with the
+           units/nanos arithmetic used for line items silently yields 0.0 and
+           puts the overstatement straight back.
+        3. **The trailer is only meaningful on the first page.** Requesting a
+           page past the end returns an empty ``consumptions[]`` *and* a trailer
+           of 0, so reading it from the last page reintroduces the same bug.
+
+        The figure is **ex-VAT**: it matches ``total_untaxed``, not
+        ``total_taxed``. See CLAUDE.md for why that distinction is not
+        observable on the verification account and must not be "simplified"
+        away.
+
+        Free tier is *not* part of the trailer — it arrives as negative "Offer
+        deducted" line items inside ``consumptions[]`` (confirmed against a real
+        invoice PDF), so subtracting the trailer does not double-count it.
         """
-        data = await self._rest_get(
-            "/billing/v2beta1/consumptions", params={"organization_id": organization_id}
-        )
-        total = 0.0
+        lines, discount, currency = await self._fetch_consumptions(organization_id)
+
+        gross = 0.0
         by_category: dict[str, float] = {}
-        currency = "EUR"
-        for item in data.get("consumptions", []):
+        for item in lines:
             value = item.get("value", {})
-            currency = value.get("currency_code", currency)
             amount = value.get("units", 0) + value.get("nanos", 0) / 1_000_000_000
-            total += amount
+            gross += amount
             category = item.get("category_name") or "Other"
             by_category[category] = by_category.get(category, 0.0) + amount
+
+        # by_category stays GROSS. A rate discount is organization-wide with no
+        # category attribution, and the discount-mode enum includes non-rate
+        # modes (a fixed-amount coupon would not split proportionally), so
+        # allocating it across categories would be invention. The consequence —
+        # total != sum(by_category) while a discount is active — is deliberate
+        # and is surfaced by the `discount` and `gross` keys.
         return {
-            "total": round(total, 2),
+            "total": round(gross - discount, 2),
+            "gross": round(gross, 2),
+            "discount": round(discount, 2),
             "currency": currency,
             "by_category": {k: round(v, 2) for k, v in by_category.items()},
         }
+
+    async def _fetch_consumptions(self, organization_id: str) -> tuple[list[dict], float, str]:
+        """Page through the consumption line items for the current period.
+
+        The endpoint pages (``page`` is 1-indexed, ``page_size`` bounded) and
+        reports ``total_count``. Reading only the first page silently
+        undercounts an organization with more line items than fit in it — the
+        sum simply comes out low, with nothing to indicate it. So this pages to
+        completion and then asserts the collected count against ``total_count``:
+        a short read raises rather than producing a quiet wrong total.
+        """
+        lines: list[dict] = []
+        discount = 0.0
+        currency = "EUR"
+        total_count: int | None = None
+
+        for page in range(1, MAX_CONSUMPTION_PAGES + 1):
+            data = await self._rest_get(
+                CONSUMPTIONS_PATH,
+                params={
+                    "organization_id": organization_id,
+                    "page": page,
+                    "page_size": CONSUMPTIONS_PAGE_SIZE,
+                },
+            )
+
+            if page == 1:
+                # Always present on a real response, including when it is zero —
+                # verified across all 80 billing periods of a real account. So
+                # absence is a schema change, not "no discount", and defaulting
+                # it to 0 would silently restore the overstatement for exactly
+                # the users the subtraction exists for.
+                if "total_discount_untaxed_value" not in data:
+                    raise ScalewayApiError(
+                        "Scaleway consumptions response has no "
+                        "total_discount_untaxed_value field; refusing to report a "
+                        "cost that may be overstated by an unknown discount"
+                    )
+                try:
+                    discount = float(data["total_discount_untaxed_value"])
+                except (TypeError, ValueError) as err:
+                    raise ScalewayApiError(
+                        f"Unparseable total_discount_untaxed_value: "
+                        f"{data['total_discount_untaxed_value']!r}"
+                    ) from err
+                raw_total = data.get("total_count")
+                total_count = int(raw_total) if raw_total is not None else None
+
+            batch = data.get("consumptions", [])
+            for item in batch:
+                currency = item.get("value", {}).get("currency_code", currency)
+            lines.extend(batch)
+
+            if not batch or len(batch) < CONSUMPTIONS_PAGE_SIZE:
+                break
+            if total_count is not None and len(lines) >= total_count:
+                break
+        else:
+            raise ScalewayApiError(
+                f"Scaleway consumptions did not finish paging within "
+                f"{MAX_CONSUMPTION_PAGES} pages; refusing to report a partial total"
+            )
+
+        if total_count is not None and len(lines) != total_count:
+            raise ScalewayApiError(
+                f"Scaleway reported {total_count} consumption line items but "
+                f"returned {len(lines)}; refusing to report a partial total"
+            )
+
+        return lines, discount, currency
 
     async def async_list_instances(self, zones: list[str]) -> list[dict]:
         """List Instances (servers) across the given zones.
@@ -327,7 +433,16 @@ class ScalewayApiClient:
                 break
             continuation_token = _find_text(root, "NextContinuationToken")
             if not continuation_token:
-                break
+                # Truncated but with nowhere to continue from. Stopping is the
+                # only option, but *reporting what we have* would publish a
+                # bucket size that is silently short — the sensor would simply
+                # read low, with nothing to indicate it. Same reasoning as the
+                # consumptions short-read: a visibly missing measurement beats a
+                # quietly wrong one.
+                raise ScalewayApiError(
+                    f"Truncated ListObjectsV2 for {region}/{bucket} with no "
+                    f"NextContinuationToken; refusing to report a partial size"
+                )
         return {"size_bytes": total_size, "object_count": object_count}
 
     async def async_list_objects(self, region: str, bucket: str, prefix: str = "") -> list[dict]:
@@ -358,7 +473,13 @@ class ScalewayApiClient:
                 break
             continuation_token = _find_text(root, "NextContinuationToken")
             if not continuation_token:
-                break
+                # See async_get_bucket_size. Here it matters more: a short
+                # listing hides backups from HA, and HA's retention logic acts
+                # on what it can see.
+                raise ScalewayApiError(
+                    f"Truncated ListObjectsV2 for {region}/{bucket} with no "
+                    f"NextContinuationToken; refusing to report a partial listing"
+                )
         return objects
 
     async def async_get_object(self, region: str, bucket: str, key: str) -> bytes:

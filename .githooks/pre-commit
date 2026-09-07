@@ -1,0 +1,21 @@
+#!/bin/bash
+# pre-commit — leak guard for this public repo. Scans the staged diff.
+#
+# The scanning logic, the pattern lists and the four lessons behind their shape live in
+# .githooks/leakcheck.py, shared with the commit-msg hook so the two can never drift
+# apart. Read that file before changing anything here.
+#
+# Enable with:  git config core.hooksPath .githooks
+# Verify with:  git config core.hooksPath
+# Test with:    .githooks/test-pre-commit.sh
+#
+# Escape hatch: SKIP_LEAK_CHECK=1 git commit ...  — for a deliberate, reviewed exception
+# only. If you are reaching for it, the string probably really should not be committed.
+set -uo pipefail
+
+if [ "${SKIP_LEAK_CHECK:-0}" = "1" ]; then
+  echo "pre-commit: leak check SKIPPED via SKIP_LEAK_CHECK=1" >&2
+  exit 0
+fi
+
+exec python3 "$(dirname "$0")/leakcheck.py" pre-commit

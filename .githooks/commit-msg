@@ -1,0 +1,20 @@
+#!/bin/bash
+# commit-msg — leak guard for the commit message itself.
+#
+# The pre-commit hook covers the staged diff. It does not, and cannot, see the message,
+# and a message is published just as permanently as a file: an agent working on this repo
+# once redacted a real account figure from the tree AND from a published release note,
+# then described that same figure in the commit message that performed the redaction.
+# Nothing caught it, and once pushed it cannot be recalled — a force-push does not remove
+# content GitHub still serves by SHA.
+#
+# Shares .githooks/leakcheck.py with pre-commit so the pattern lists cannot drift.
+# Tested by .githooks/test-pre-commit.sh alongside the pre-commit cases.
+set -uo pipefail
+
+if [ "${SKIP_LEAK_CHECK:-0}" = "1" ]; then
+  echo "commit-msg: leak check SKIPPED via SKIP_LEAK_CHECK=1" >&2
+  exit 0
+fi
+
+exec python3 "$(dirname "$0")/leakcheck.py" commit-msg "$1"

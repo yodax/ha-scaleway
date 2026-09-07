@@ -71,7 +71,7 @@
   "entity": {
     "sensor": {
       "cost_total": {
-        "name": "Totale kosten (huidige periode)"
+        "name": "Kosten deze periode (excl. btw)"
       },
       "instance_state": {
         "name": "Status"

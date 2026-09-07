@@ -15,7 +15,15 @@ CONF_BUCKETS = "buckets"
 CONF_BACKUP_BUCKET = "backup_bucket"
 CONF_BACKUP_PREFIX = "backup_prefix"
 
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=10)
+# Scaleway's billing figures move hourly at best, and Instance/Kubernetes state
+# is not something a household dashboard needs to the minute. The previous
+# 10 minutes polled roughly six times faster than the data it was reading.
+DEFAULT_SCAN_INTERVAL = timedelta(hours=1)
+# Each install polls a fixed few minutes off the hour rather than on it. This is
+# a published HACS integration: without an offset every copy of it hits
+# Scaleway's API in lockstep. Derived per config entry and stable across
+# restarts — see coordinator.poll_offset().
+MAX_POLL_OFFSET = timedelta(minutes=15)
 # Sizing a bucket means paginating every object in it (Scaleway has no
 # cheaper "bucket size" endpoint), so buckets are polled far
 # less often than cost/instance/cluster status.

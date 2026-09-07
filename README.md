@@ -21,7 +21,7 @@ and optionally use a Scaleway bucket as a **Home Assistant backup location**.
 
 | Sensor | Description |
 | --- | --- |
-| **Total cost** | Spend for the current billing period, as a monetary sensor in your account's currency. |
+| **Cost this period (excl. VAT)** | What Scaleway will invoice for the current billing period, as a monetary sensor in your account's currency. See [What the cost sensor means](#what-the-cost-sensor-means). |
 | **Cost per category** | One sensor per billing category actually present on the account (Object Storage, Instances, …), discovered automatically. |
 | **Instance state** | State of each Scaleway Instance (`running`, `stopped`, …), with zone and commercial type as attributes. |
 | **Kubernetes cluster status** | Status of each Kapsule cluster, with region and version as attributes. |
@@ -30,6 +30,37 @@ and optionally use a Scaleway bucket as a **Home Assistant backup location**.
 
 Instances and clusters are discovered across all Scaleway zones and regions.
 Each resource becomes its own device, so entities stay tidy.
+
+Sensors refresh **hourly**, which is as often as Scaleway's billing figures
+actually move. Each installation additionally waits its own fixed delay, 0–15
+minutes, before its *first* scheduled refresh — derived from the config entry,
+so two installations don't hit Scaleway's API in step with each other.
+
+To be precise about what is and isn't stable: the delay itself is derived by
+hashing the config entry id, so it is the same on every restart and the same
+after a reload. The resulting minute of the hour is *not*, because Home
+Assistant schedules relative to when it started — restart at a different time
+of day and the polls land at a different point in the hour. The delay is there
+to spread load across installations, not to pin a wall-clock time.
+
+#### What the cost sensor means
+
+The total cost sensor reports the figure Scaleway invoices: the consumption
+line items for the period, **net of any organization-wide discount** and
+**excluding VAT**. It corresponds to the `total_untaxed` line on your invoice.
+
+Two things are worth knowing:
+
+- **It excludes VAT.** Whether you are then charged VAT on top depends on your
+  own tax situation (an EU business with a valid VAT number is reverse-charged
+  and pays none; a consumer account generally is charged it). Scaleway's
+  billing API does not expose which applies to you, so this integration does
+  not guess — it reports the untaxed figure and says so in the sensor name.
+- **The per-category sensors are gross.** A discount or commitment is applied
+  to the account as a whole, and Scaleway attributes it to no particular
+  category, so it cannot honestly be split across them. If you have one active,
+  the total will be *less* than the sum of the category sensors. The total
+  sensor carries `gross` and `discount` attributes so you can see both halves.
 
 ### Backup location
 
@@ -188,6 +219,50 @@ logger:
 Issues and pull requests are welcome. If you're reporting a problem, please
 include your Home Assistant version, the integration version, and relevant
 logs with any keys redacted.
+
+### Running the tests
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements_test.txt
+pytest tests/ -v
+```
+
+The tests fake `aiohttp.ClientSession` by hand (`tests/fake_session.py`)
+rather than using `aioresponses`, which is incompatible with the aiohttp
+version Home Assistant pins.
+
+### The pre-commit leak gate
+
+This repo is public and is developed against a real Scaleway account, where an
+API key authorises real spend. `.githooks/` holds a gate that refuses to commit
+credential-shaped strings, private network addresses and similar, in both the
+staged diff **and** the commit message. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+.githooks/test-pre-commit.sh   # 48 cases; must be green
+```
+
+Fixtures still need things that *look* like credentials, so the patterns
+deliberately accept the placeholder forms and reject only realistic ones:
+
+| Use in fixtures | Blocked |
+| --- | --- |
+| `SCWXXXXXXXXXXXXXXXXX` (`SCW` + 17 letters, no digits) | any access key containing digits |
+| `00000000-0000-4000-8000-000000000000` (first block one repeated character) | a realistic UUID next to `secret_key` / `X-Auth-Token` |
+
+A bare UUID with no credential context is fine — entry ids and unique ids are
+UUIDs too.
+
+Patterns specific to a person or network are **not** in this repo (a public
+repo cannot carry the list of strings it is guarding). The gate loads those
+from `~/.config/ha-scaleway/leak-patterns.txt`, overridable with
+`$SCALEWAY_LEAK_PATTERNS`. Without that file the gate runs its generic half and
+says so — which is the right coverage for an outside contributor. If it ever
+blocks something you truly need to commit, `SKIP_LEAK_CHECK=1 git commit`
+overrides it; if a *real* credential got as far as being staged, revoke it in
+the Scaleway console rather than only unstaging it.
 
 ---
 

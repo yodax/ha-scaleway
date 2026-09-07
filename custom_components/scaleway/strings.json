@@ -71,7 +71,7 @@
   "entity": {
     "sensor": {
       "cost_total": {
-        "name": "Total cost (current period)"
+        "name": "Cost this period (excl. VAT)"
       },
       "instance_state": {
         "name": "State"

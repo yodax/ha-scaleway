@@ -55,5 +55,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        # Defensive `.get`/default rather than `hass.data[DOMAIN].pop(...)`.
+        #
+        # Honest scope: this is NOT currently load-bearing. HA's
+        # ConfigEntry.async_unload returns early for any entry that is not
+        # LOADED (checked against 2026.9.1), so a setup that failed before
+        # populating hass.data never reaches this function at all — an earlier
+        # draft of the comment here claimed otherwise and was wrong. The
+        # KeyError it guards is not reachable through HA today.
+        #
+        # It stays because the cost of being wrong is lopsided: an exception
+        # raised here is caught by HA and turns the entry into FAILED_UNLOAD,
+        # which blocks the reload that options changes and credential swaps
+        # both depend on. A two-character guard against that is worth more
+        # than the invariant it gives up.
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unloaded

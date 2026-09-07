@@ -1,0 +1,27 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install test dependencies
+        run: pip install -r requirements_test.txt
+      # -W error::RuntimeWarning turns an un-awaited coroutine into a failure.
+      # Faking an async client is exactly where that mistake hides, and it
+      # otherwise scrolls past as a warning on a green run.
+      - name: Run tests
+        run: pytest tests/ -v -W error::RuntimeWarning
